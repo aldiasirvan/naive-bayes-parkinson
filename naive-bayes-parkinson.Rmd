@@ -1,0 +1,247 @@
+---
+title: "Klasifikasi Parkinsons's Disease dengan Metode Naive Bayes"
+author: "Aldias Irvan Nugraha - 221810138 - 3SD1"
+date: "12/2/2020"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Proses
+
+### Load Library
+
+Tiga library yang dibutuhkan, yaitu **naivebayes, psych, dan caret**. Library **naivebayes** akan digunakan untuk membuat modelnya. Library **psych** akan digunakan untuk melihat korelasi antar variabel. Library **caret** digunakan untuk membuat confusion matriks dan melihar akurasi model.
+
+```{r message=FALSE, warning=FALSE}
+library(naivebayes)
+library(psych)
+library(caret)
+```
+
+### Import dataset
+
+```{r}
+dt <- read.table("https://archive.ics.uci.edu/ml/machine-learning-databases/parkinsons/parkinsons.data", sep = ",", header = TRUE)
+head(dt) #tampilkan 5 data
+```
+
+_Sekilas mengenai dataset:_
+
+Title: Parkinsons Disease Data Set
+
+Abstract: Oxford Parkinson's Disease Detection Dataset
+
+-----------------------------------------------------	
+
+* Data Set Characteristics: Multivariate
+* Number of Instances: 197
+* Area: Life
+* Attribute Characteristics: Real
+* Number of Attributes: 23
+* Date Donated: 2008-06-26
+* Associated Tasks: Classification
+* Missing Values? N/A
+
+-----------------------------------------------------	
+
+Source:
+
+The dataset was created by Max Little of the University of Oxford, in collaboration with the National Centre for Voice and Speech, Denver, Colorado, who recorded the speech signals. The original study published the feature extraction methods for general voice disorders.
+
+-----------------------------------------------------
+
+Data Set Information:
+
+This dataset is composed of a range of biomedical voice measurements from 31 people, 23 with Parkinson's disease (PD). Each column in the table is a particular voice measure, and each row corresponds one of 195 voice recording from these individuals ("name" column). The main aim of the data is to discriminate healthy people from those with PD, according to "status" column which is set to 0 for healthy and 1 for PD.
+
+The data is in ASCII CSV format. The rows of the CSV file contain an instance corresponding to one voice recording. There are around six recordings per patient, the name of the patient is identified in the first column.
+
+-----------------------------------------------------
+
+Attribute Information:
+
+Matrix column entries (attributes):
+
+* name - ASCII subject name and recording number
+* MDVP:Fo(Hz) - Average vocal fundamental frequency
+* MDVP:Fhi(Hz) - Maximum vocal fundamental frequency
+* MDVP:Flo(Hz) - Minimum vocal fundamental frequency
+* MDVP:Jitter(%),MDVP:Jitter(Abs),MDVP:RAP,MDVP:PPQ,Jitter:DDP - Several 
+* measures of variation in fundamental frequency
+* MDVP:Shimmer,MDVP:Shimmer(dB),Shimmer:APQ3,Shimmer:APQ5,MDVP:APQ,Shimmer:DDA - Several measures of variation in amplitude
+* NHR,HNR - Two measures of ratio of noise to tonal components in the voice
+* status - Health status of the subject (one) - Parkinson's, (zero) - healthy
+* RPDE,D2 - Two nonlinear dynamical complexity measures
+* DFA - Signal fractal scaling exponent
+* spread1,spread2,PPE - Three nonlinear measures of fundamental frequency variation 
+
+### Cek Data
+
+```{r}
+str(dt) #tipe data
+summary(dt) #ringkasan data
+```
+
+### Preprocessing
+
+_Mengecek multikolinearitas dengan korelasi spearman_
+
+Melihat korelasi dari tiap variabel, bila terdapat korelasi yang tinggi, hilangkan salah satu variabel.
+
+```{r}
+kor <-as.dist(round(cor(dt[,2:24],method = "spearman"),2))
+kor
+```
+
+Hasil nya didapatkan bahwa terdapat bebrapa variabel yang memiliki korelasi tinggi yaitu diatas 80%. Solusinya adalah menghilangkan salah satu dari dua variabel terkait. Berikut adalah daftar variable yang akan dihilangkan:
+* MDVP.Fhi.Hz.
+* MDVP.Jitter.Abs.
+* MDVP.RAP
+* MDVP.PPQ
+* Jitter.DDP
+* MDVP.Shimmer.dB.
+* Shimmer.APQ3
+* Shimmer.APQ5
+* MDVP.APQ
+* Shimmer.DDA
+* NHR
+* HNR
+* PPE
+
+```{r}
+dt <- dt[,-c(1,3,6:9,11:17,24)] #menghilangkan variabel di atas
+str(dt)
+```
+
+_Membuat interval dan konversi ke factor_
+
+Bila data num langsung dikonversikan menjadi factor maka akan menghasilkan level yang sangat banyak. Maka dari itu diperlukan pembuatan interval pada data. Interval ini dibagi berdasarkan sebaran letaknya pada Q1, Q2, Q3 (rendah, sedang, tinggi, sangat tinggi).
+
+```{r}
+#Mengambil data yang akan dibuat interval
+dtin <- dt[,-c(5)] #menghilangkan variabel status
+
+#Membuat interval
+p <- lapply(dtin, FUN = function(a){cut(a,breaks=c(min(a),quantile(a,0.25),quantile(a,0.50),quantile(a,0.75),max(a)),labels = c("rendah","sedang","tinggi","sangat-tinggi"))})
+
+#Merubah list ke data frame dan menggabungkan dengan status
+dtfix <- data.frame(p[1:9],as.factor(dt$status))
+levels(dtfix$as.factor.dt.status.) = c("Sehat","Parkinson") #merubah levels status menjadi sehat dan parkinson
+colnames(dtfix)[10] <- "Status" #ubah nama variabel status
+str(dtfix)
+```
+
+_Mengecek multikolinearitas kembali dengan pairs.panels_
+
+Memastikan bahwa tidak terdapat horelasi yang tinggi.
+
+```{r}
+pairs.panels(dtfix)
+```
+
+### Memisahkan data training dan data test
+
+Memecah data menjadi data training(80% dari data awal) dan data test (20% dari data awal)
+
+```{r}
+set.seed(911)
+sampel <- sample(2, nrow(dtfix), replace = T, prob = c(0.8,0.2))
+trainingdat <- dtfix[sampel==1, ]
+testingdat <- dtfix[sampel==2, ]
+print(paste("Jumlah Train Data: ", nrow(trainingdat), "| Jumlah Test Data: ", nrow(testingdat)))
+```
+
+### Membuat Model
+
+Gunakan atribut `laplace` untuk menghilangkan zero probability problem
+
+```{r message=FALSE, warning=FALSE}
+modelnaiv <- naive_bayes(Status~.,data=trainingdat)
+modelnaiv
+```
+
+### Visualisasi Model
+
+```{r}
+#Visualisasi Model
+plot(modelnaiv)
+```
+
+# 2. Output
+
+### Summary Model
+
+```{r}
+summary(modelnaiv)
+```
+
+Interpretasi:
+
+Model yang diperolah akan memberikan hasil probabilitas atau kemungkinan memprediksi bahwa pasien menderita parkinson sebesar 74,05%.
+
+# 3. Confusion Matrix
+
+### Model Validation
+
+Validasi model dilakukan melalui pengecekan nilai akurasi, specificity, sensitifity, dan presisi menggunaka confusion matriks. Sama seperti model sebelumnya, pada analisa ini nilai akurasi akan dijadikan penentu dalam pemilihan model yang cocok.
+
+_Confusion Matrix_
+
+```{r}
+prediksi <- predict(modelnaiv, testingdat)
+confusionMatrix(table(prediksi,testingdat$Status))
+```
+
+# 4. Evaluasi model
+
+Interpretasi:
+
+Pasien yang sebenarnya sehat berhasil diprediksi benar sebanyak 5 orang, 6 sisanya gagal diprediksi (salah prediksi) atau didiagnosa mengalami parkinson, sedangkan pasien yang sebenarnya menderita parkinson berhasil diprediksi sebanyak 24 orang, 2 sisanya gagal diprediksi (salah prediksi) atau dinyatakan sehat.
+
+```{r}
+presisi <- 5/(5+2)
+recall <- 5/(5+6)
+f1 <- 2*(recall*presisi)/(recall+presisi)
+```
+
+
+* Akurasi yang diperoleh hanya 78,38% dan berada di range 61,79% hingga 90,17%. Ini tergolong rendah.
+* Sensitifitas yang diperoleh juga berada di 71,43%. Hal ini terjadi mungkin karena kesalahan dalam memilih model ataupun memang data yang kurang bagus.
+* Spesifisitas yang diperoleh cukup dengan hasil 80%.
+* Presisi yang diperoleh `r presisi`.
+* Recall yang diperoleh `r recall`.
+* F1-score yang diperoleh `r f1`
+
+# 5. Interpretasi statistik
+
+* Accuracy menggambarkan seberapa akurat model dapat mengklasifikasikan dengan benar. Maka, accuracy merupakan rasio prediksi benar (positif dan negatif) dengan keseluruhan data. Dengan kata lain, accuracy merupakan tingkat kedekatan nilai prediksi dengan nilai aktual (sebenarnya). Nilai accuracy dapat diperoleh dengan persamaan (1).
+
+Interpretasi :
+
+Persentase pasien yang benar diprediksi sehat maupun yang diprediksi menderita parkinson dari kesuluruhan pasien adalah 90,17%.
+
+* Precission merupakan rasio prediksi benar positif dibandingkan dengan keseluruhan hasil yang diprediksi positf.  
+
+Interpretasi
+
+Persentase pasien yang benar sehat dari keseluruhan pasien yang diprediksi sehat adalah `r 5/(5+2)`.
+
+* Spesificity merupakan kebenaran memprediksi negatif dibandingkan dengan keseluruhan data negatif.
+
+Interpretasi :
+
+Persentase pasien yang benar diprediksi menderita parkinson dibandingkan dengan keseluruhan mahasiswa yang sebenarnya menderita parkinson adalah 80%
+
+* Recall menggambarkan keberhasilan model dalam menemukan kembali sebuah informasi. Maka, recall merupakan rasio prediksi benar positif dibandingkan dengan keseluruhan data yang benar positif.
+
+Interpretasi :
+
+Persentase pasien yang diprediksi sehat dibandingkan keseluruhan pasien yang sebenarnya sehat adalah `r 5/(5+6)`.
+
+* F1 Score merupakan perbandingan rata-rata presisi dan recall yang dibobotkan
+
+F1 Score = 2 * (Recall*Precission) / (Recall + Precission)
