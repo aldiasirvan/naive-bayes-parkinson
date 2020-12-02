@@ -9,7 +9,6 @@ Details Dataset
 * Records: 197
 * Atribut: 23
 * Missing: No
-* Detail Tujuan:
-* Klasifikasi apakah penderita mengalami parkinson atau tidak
+* Detail Tujuan: Klasifikasi apakah penderita mengalami parkinson atau tidak
 
 _Disclaimer: Project ini belum dilengkapi dengan EDA yang lengkap_
